@@ -1,0 +1,17 @@
+build/
+logs/
+records/
+imgs/
+MvSdkLog/
+*.avi
+*.screenlog
+assets/img_with_q/
+assets/handeye_frames/
+assets/img_more/
+io/hikrobot/lib/
+io/hikrobot/include/
+io/mindvision/lib/
+io/mindvision/include/
+assets/*_frames/
+assets/he_try/
+assets/demo/

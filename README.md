@@ -1,151 +1,55 @@
-# sp_cdc — 哨兵自瞄通信协议（vision ↔ rmpp CDC）
+# sp_vision_25 — 哨兵自瞄视觉（CDC / 新协议）
 
-视觉（上位机）与哨兵下位机（rmpp，CherryUSB CDC）之间的**新**串口协议，仅覆盖自瞄链路。
-本仓库包含协议说明与新版 `io/minipc` 实现。
+同济 SuperPower 哨兵视觉自瞄。视觉侧通过 USB CDC 与 rmpp 下位机通信。
+本仓库为**新协议 A1/A2** 版本，完整协议见 [docs/protocol.md](docs/protocol.md)。
 
-- 物理链路：USB CDC ACM（`/dev/ttyACM*`，常用 udev 软链 `/dev/c_board`），8N1；CDC 通常忽略波特率，代码仍设 `115200`。
-- 字节序：多字节小端（little-endian），`float` 为 IEEE754 float32。
-- 帧头：**单字节**，各帧互不相同。
-- CRC：**CRC-16/MODBUS**（init `0xFFFF`，多项式 `0xA001`，LSB first），**校验范围 = 从帧头起、到 CRC 前的全部字节**；CRC 低字节先发。
-- 失步处理：收到未知帧头 / CRC 不符时，丢弃 **1 字节** 重新对齐。
+## 当前状态
 
-## 帧一览
+- 新协议：视觉发 `0xA1`（17B）、收 `0xA2`（24B）；CRC 覆盖帧头，pitch 为**下正**。
+- 实车（哨兵）在板子固件升级前暂时回退旧 `A5` 协议；本仓库为板子升级后使用的**目标版本**，新旧协议不兼容，需同步升级下位机固件。
+- 上游项目说明见 [docs/upstream_readme.md](docs/upstream_readme.md)。
 
-| 帧头 | 方向 | 长度 | 用途 | 自瞄是否使用 |
-|---|---|---|---|---|
-| `0xA1` | 视觉 → 下位机 | 17B | 自瞄下行（控制量） | 是（发送） |
-| `0xA2` | 下位机 → 视觉 | 24B | 自瞄上行（状态） | 是（接收） |
-| `0xA3` | 视觉 → 下位机 | 24B | 导航下行 | 否（不发送） |
-| `0xA4` | 下位机 → 视觉 | 11B | 导航上行 | 否（接收时跳过 11B） |
+## 目录
 
----
+| 目录 | 内容 |
+|---|---|
+| `src/` | 主程序（`sentry_minipc`） |
+| `tasks/` | 识别、追踪、弹道、自瞄 |
+| `io/` | 相机、串口、云台、minipc 等 |
+| `configs/` | 运行配置（`sentry.yaml`） |
+| `calibration/` | 标定工具 |
+| `tools/` | 通用工具 |
+| `tests/` | 测试 |
+| `assets/` | 模型与少量运行资源 |
+| `docs/` | 协议、部署文档 |
 
-## 0xA1 自瞄下行（视觉 → 下位机，17B）
+## 构建
 
-| 偏移 | 类型 | 字段 | 单位/符号 | 说明 |
-|---|---|---|---|---|
-| 0 | u8 | `SOF` | — | 固定 `0xA1` |
-| 1 | u8 | `is_detect` | 0/1 | 是否识别到目标 |
-| 2 | u8 | `is_fire` | 0/1 | 是否开火 |
-| 3 | f32 | `yaw` | deg | 俯视**逆时针为正**（向左为正） |
-| 7 | f32 | `pitch` | deg | **向下为正**；水平 ≈ 0，抬头为负 |
-| 11 | f32 | `distance` | m | 目标距离 |
-| 15 | u16 | `crc` | — | 覆盖 `[0..14]` |
+依赖：CMake ≥ 3.16、C++17、OpenCV、Eigen3、yaml-cpp、OpenVINO（推理）、
+海康 MVS SDK / 迈德威视 MVSDK（相机）。
 
-- `pitch` 与视觉内部约定一致（内部即“下正”），**直接发送，不再取负**。
-- 旧协议线上 pitch 为“上正”，迁移时注意符号。
+> 厂商 SDK 的头文件与 `.so` **未包含**在本仓库（授权原因）。
+> `io/hikrobot`、`io/mindvision` 仅保留项目封装（`.cpp/.hpp`）；请自行把 SDK 的
+> `include/`、`lib/` 放回对应目录，否则相机相关目标无法编译。
 
-示例（`is_detect=1, is_fire=1, yaw=30°, pitch=15°, distance=3.5m`）：
-
-```
-A1 01 01 00 00 F0 41 00 00 70 41 00 00 60 40 04 D8
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j"$(nproc)" --target sentry_minipc
 ```
 
----
+## 运行
 
-## 0xA2 自瞄上行（下位机 → 视觉，24B）
-
-| 偏移 | 类型 | 字段 | 单位/符号 | 说明 |
-|---|---|---|---|---|
-| 0 | u8 | `SOF` | — | 固定 `0xA2` |
-| 1 | u8 | `is_red` | 0/1 | 己方是否红方 |
-| 2 | f32 | `bullet_speed` | m/s | 弹速；`0` 视为无效，视觉回退默认值（20 m/s） |
-| 6 | f32 | `qx` | — | 四元数 x |
-| 10 | f32 | `qy` | — | 四元数 y |
-| 14 | f32 | `qz` | — | 四元数 z |
-| 18 | f32 | `qw` | — | 四元数 w |
-| 22 | u16 | `crc` | — | 覆盖 `[0..21]` |
-
-- 四元数为**机体系 → 世界系**，顺序 `x, y, z, w`；视觉按 `Quaterniond(w, x, y, z)` 构造。
-- 视觉可由此解出 yaw/pitch/roll 用于显示/日志。
-
-示例（`is_red=0, bullet_speed=25, q=(0.5, -0.25, 0.75, 0.875)`）：
-
-```
-A2 00 00 00 C8 41 00 00 00 3F 00 00 80 BE 00 00 40 3F 00 00 60 3F D5 DF
+```bash
+./build/sentry_minipc configs/sentry.yaml
 ```
 
----
+串口默认 `/dev/c_board`（udev 软链到 `ttyACM*`）。
 
-## 0xA3 导航下行（视觉 → 下位机，24B，自瞄不用）
+## 数据与排除项
 
-| 偏移 | 类型 | 字段 | 说明 |
-|---|---|---|---|
-| 0 | u8 | `SOF` | `0xA3` |
-| 1 | u8 | `is_through_hole` | 是否穿越环 |
-| 2 | f32 | `vx` | m/s |
-| 6 | f32 | `vy` | m/s |
-| 10 | f32 | `yaw` | rad |
-| 14 | f32 | `x` | m |
-| 18 | f32 | `y` | m |
-| 22 | u16 | `crc` | 覆盖 `[0..21]` |
+- 包含：源码、配置、标定工具、模型（`assets/*.onnx|*.bin|*.xml`）。
+- 未包含：`build/`、`logs/`、`records/`、`imgs/`、标定视频与帧（`*.avi`、`*_frames/`、`*_q.txt`）、截图、厂商 SDK 二进制/头文件。
 
-示例（`vx=1.0`，其余 0）：
+## License
 
-```
-A3 00 00 00 80 3F 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 8A 78
-```
-
----
-
-## 0xA4 导航上行（下位机 → 视觉，11B，自瞄跳过）
-
-| 偏移 | 类型 | 字段 | 说明 |
-|---|---|---|---|
-| 0 | u8 | `SOF` | `0xA4` |
-| 1 | f32 | `x` | m |
-| 5 | f32 | `y` | m |
-| 9 | u16 | `crc` | 覆盖 `[0..8]` |
-
-示例（`x=1.5, y=-2.5`）：
-
-```
-A4 00 00 C0 3F 00 00 20 C0 DC A2
-```
-
----
-
-## CRC 参考实现
-
-```cpp
-uint16_t crc16_modbus(const uint8_t * data, size_t len) {
-  uint16_t crc = 0xFFFF;
-  for (size_t i = 0; i < len; ++i) {
-    crc ^= data[i];
-    for (int b = 0; b < 8; ++b)
-      crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : (crc >> 1);
-  }
-  return crc;
-}
-// 发送：buf[15] = crc & 0xFF; buf[16] = crc >> 8;   // 低字节先
-```
-
-## 与旧协议（A5 5A/5B/5C）的差异
-
-| 项 | 旧 | 新 |
-|---|---|---|
-| 帧头 | 2 字节 `0xA5` + `0x5A/5B/5C` | 单字节 `0xA1/0xA2/0xA3/0xA4` |
-| CRC 范围 | 不含帧头 | **含帧头**（帧头起到 CRC 前） |
-| 自瞄上行 | yaw/pitch/roll（欧拉角） | **四元数** `x,y,z,w` + `is_red` + `bullet_speed` |
-| 线上 pitch | 上正（发送前取负） | **下正**（直接发送） |
-| 帧长 | 下行 21B / 上行 18B / 导航 17B | 17B / 24B / 24B（导航上行 11B） |
-
-> 新旧协议**不兼容**。下位机固件与视觉需同时升级；仅升级一侧会导致收不到有效帧（`conn=false`）。
-
-## 代码结构
-
-```
-io/minipc/
-├── protocol.hpp     # 帧头/长度/CRC/小端读写工具
-├── minipc_io.hpp    # MinipcIO 接口（q / is_red / bullet_speed / connected / imu_* / send_auto_aim）
-└── minipc_io.cpp    # 串口收发、A2 解析、A1 组帧、A4 跳过、失步重同步
-```
-
-依赖：`Eigen3`、`serial`（串口库）、项目内 `tools/{logger,yaml,math_tools}.hpp`。
-自瞄只实现 `0xA1` 发送与 `0xA2` 解析；`0xA3` 保留 `send_chassis_speed()`（测试用，x/y 固定 0），`0xA4` 收到即跳过。
-
-## 备注
-
-- 视觉侧当前（哨兵实车）在板子固件未升级前暂时回退到旧 `A5` 协议；板子升级为新 `A1/A2` 后，视觉切换回本仓库实现即可。
-- `0xA2` 实际发送频率约 200 Hz（旧协议实测 192 Hz）。
-- `bullet_speed = 0` 时视觉使用配置默认弹速（20 m/s），不影响链路连通性。
+MIT，见 [LICENSE](LICENSE)（Copyright (c) 2025 TongjiSuperPower）。厂商 SDK 遵循各自许可。

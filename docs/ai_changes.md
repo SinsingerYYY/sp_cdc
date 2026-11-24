@@ -54,6 +54,7 @@ AI 主要做了：CDC 通信（旧 A5 → 新 A1/A2）、自瞄/云台算法实�
 - `.155`：NoMachine 9.1.24（Xorg、GDM 自动登录）、关 WiFi 省电、`stream_udp`/`recv_stream.py`、
   海康 udev/USB `authorized` 复位；无板时用虚拟串口 `/dev/pts/1` 跑“检测-only”（`conn=false`）。
 - 仓库：`sp_cdc`（公开）推协议文档 + 全量源码（`ee46a84`、`d0d5c0e`）。
+- 去掉白平衡：删除软件 `wb_gains`（`io/hikrobot` 逐通道乘法、`io/camera` 读取、`configs/sentry.yaml`），硬件 `BalanceWhiteAuto` 改 `OFF`；**未编译/未上车验证**（设备离线）。
 
 ## 2. 当前最终参数（`.154`，已提交到 `1997121`）
 
@@ -70,6 +71,7 @@ AI 主要做了：CDC 通信（旧 A5 → 新 A1/A2）、自瞄/云台算法实�
 | `use_mpc` / `auto_fire` | false / true |
 | 串口 | `/dev/c_board` → `ttyACM0` |
 | 相机 | hikrobot（USB3） |
+| 白平衡 | **已去掉**（硬件 `BalanceWhiteAuto=OFF`，无软件增益） |
 
 `.155` 未同步上述配置：仍 `exposure 4 / gain 16`、`yaw −0.8 / pitch −1`、左右 −1/−0.6、旧外参 `t=[0.1309,0.00385,0.0941]`。
 
@@ -81,6 +83,7 @@ AI 主要做了：CDC 通信（旧 A5 → 新 A1/A2）、自瞄/云台算法实�
 | 新协议 A1/A2 在 `.154` 常驻 | 暂时回退旧 A5 | 板子固件仍旧 A5，`conn=false` |
 | handeye3/7 等外参 | 未采用 | 姿态窄，解出 17° 垃圾 |
 | 单独补相机 `t_z=0.094` | 未采用 | 与“炮口同高”抵消，单独补会打高 |
+| 软件白平衡 `wb_gains` | 去掉 | 固定增益有 CPU/延迟成本；与硬件自动 WB 叠加 |
 | `.154` 上真实自瞄的新协议验证 | 未完成 | 板子未升级 |
 
 ## 4. 记录来源与可信度

@@ -16,9 +16,7 @@ namespace io
 class HikRobot : public CameraBase
 {
 public:
-  HikRobot(
-    double exposure_ms, double gain, const std::string & vid_pid, double wb_c0 = 1.0,
-    double wb_c1 = 1.0, double wb_c2 = 1.0);
+  HikRobot(double exposure_ms, double gain, const std::string & vid_pid);
   ~HikRobot() override;
   void read(cv::Mat & img, std::chrono::steady_clock::time_point & timestamp) override;
 
@@ -31,8 +29,6 @@ private:
 
   double exposure_us_;
   double gain_;
-  double wb_c0_, wb_c1_, wb_c2_;  // 软件白平衡增益（按图像通道顺序）
-
   std::thread daemon_thread_;
   std::atomic<bool> daemon_quit_;
 

@@ -71,6 +71,7 @@
 - **手眼**：handeye3–10 重采；修正曝光/增益（`gain 30` 无效），剔除窄姿态；采用 handeye9（17 帧，R 偏差 yaw −0.34°/pitch +2.95°/roll −0.29°，`t=[0.19272,0.06053,0.00981]`）。相机与炮口同高，`t_z` 与“弹从原点”互相抵消，单独补 `t_z` 会打高。
 - **Aimer**：隔项差/超前/`yaw_scale`/muzzle/MPC 实验后回退 baseline（`a92bbdc`），`use_mpc: false`。
 - **调参**：yaw −0.7、pitch −1.0、左右 0（`cc82e3b` → `1997121`）；曝光 8 / 增益 10。
+- **白平衡**：去掉白平衡——删除软件 `wb_gains` 逐通道乘法（`io/hikrobot`、`io/camera`、`configs/sentry.yaml`），硬件 `BalanceWhiteAuto` 改 `OFF`。原因为固定软件增益有 CPU/延迟成本且与相机自动 WB 叠加。
 - **相位/延迟**：75rpm 相位 ≈ −75° → 等效延迟 ≈160ms；停稳 104Hz 跟随正常（+0.11°）。需求：60rpm `τ≤48ms`（w/r=0.3）。见 `/home/singer/响应指标.md`。
 - **协议**：新 A1 17B / A2 24B（CRC 含帧头、pitch 下正、四元数上行）在 `.155` 编译；`.154` 因板子仍旧 A5 已回退。板子实测仍发 `A5 5A`（384 帧校验，A2 0 帧）。
 - **1235U**：NoMachine/Xorg 自动登录、WiFi 省电关闭、`stream_udp`/`recv_stream`、海康 udev/USB 复位；无板时虚拟串口检测-only。

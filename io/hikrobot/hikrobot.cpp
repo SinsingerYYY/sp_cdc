@@ -8,11 +8,9 @@ using namespace std::chrono_literals;
 
 namespace io
 {
-HikRobot::HikRobot(
-  double exposure_ms, double gain, const std::string & vid_pid, double wb_c0, double wb_c1,
-  double wb_c2)
-: exposure_us_(exposure_ms * 1e3), gain_(gain), wb_c0_(wb_c0), wb_c1_(wb_c1), wb_c2_(wb_c2),
-  queue_(1), daemon_quit_(false), vid_(-1), pid_(-1)
+HikRobot::HikRobot(double exposure_ms, double gain, const std::string & vid_pid)
+: exposure_us_(exposure_ms * 1e3), gain_(gain), queue_(1), daemon_quit_(false), vid_(-1),
+  pid_(-1)
 {
   set_vid_pid(vid_pid);
   if (libusb_init(NULL)) tools::logger()->warn("Unable to init libusb!");
@@ -85,7 +83,7 @@ void HikRobot::capture_start()
     return;
   }
 
-  set_enum_value("BalanceWhiteAuto", MV_BALANCEWHITE_AUTO_CONTINUOUS);
+  set_enum_value("BalanceWhiteAuto", MV_BALANCEWHITE_AUTO_OFF);
   set_enum_value("ExposureAuto", MV_EXPOSURE_AUTO_MODE_OFF);
   set_enum_value("GainAuto", MV_GAIN_MODE_OFF);
   set_float_value("ExposureTime", exposure_us_);
@@ -142,15 +140,6 @@ void HikRobot::capture_start()
         {PixelType_Gvsp_BayerGB8, cv::COLOR_BayerGB2RGB},
         {PixelType_Gvsp_BayerBG8, cv::COLOR_BayerBG2RGB}};
       cv::cvtColor(img, dst_image, type_map.at(pixel_type));
-      // 软件白平衡：按图像通道顺序各乘一个增益
-      if (wb_c0_ != 1.0 || wb_c1_ != 1.0 || wb_c2_ != 1.0) {
-        std::vector<cv::Mat> ch;
-        cv::split(dst_image, ch);
-        ch[0].convertTo(ch[0], -1, wb_c0_);
-        ch[1].convertTo(ch[1], -1, wb_c1_);
-        ch[2].convertTo(ch[2], -1, wb_c2_);
-        cv::merge(ch, dst_image);
-      }
       img = dst_image;
 
       queue_.push({img, timestamp});
